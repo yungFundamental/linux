@@ -74,6 +74,7 @@ MODULE_PARM_DESC(terminal, "Enable break codes on an IBM Terminal keyboard conne
  */
 
 #define ATKBD_KEYMAP_SIZE	512
+#define WRAP_INC(val, min, max)	((((val+1) - min ) % (max - min + 1)) + min)
 
 static const unsigned short atkbd_set2_keycode[ATKBD_KEYMAP_SIZE] = {
 
@@ -505,6 +506,7 @@ static void atkbd_receive_byte(struct ps2dev *ps2dev, u8 data)
 		return;
 
 	keycode = atkbd->keycode[code];
+	dev_dbg(&serio->dev, "Parsed byte %04X to keycode %04X.\n", code, keycode);
 
 	if (!(atkbd->release && test_bit(code, atkbd->force_release_mask)))
 		if (keycode != ATKBD_KEY_NULL)
@@ -1117,6 +1119,28 @@ static int atkbd_get_keymap_from_fwnode(struct atkbd *atkbd)
 	return 0;
 }
 
+
+/*
+ * shift_right_if_alpha_key() returns the next key on the keyboard to the right if the key given was a letter.
+ *  If the key wasn't a letter, the same key will be returned.
+ */
+
+static unsigned short shift_right_if_alpha_key(unsigned short keycode)
+{
+	int i;
+	unsigned short row_ranges[][2] = {
+		{16, 25},
+		{30, 38},
+		{44, 50}
+	};
+	for (i=0; i < sizeof(row_ranges) / sizeof(row_ranges[0]); i++)
+	{
+		if (keycode >= row_ranges[i][0] && keycode <= row_ranges[i][1])
+			return WRAP_INC(keycode, row_ranges[i][0], row_ranges[i][1]);
+	}
+	return keycode;
+}
+
 /*
  * atkbd_set_keycode_table() initializes keyboard's keycode table
  * according to the selected scancode set
@@ -1136,8 +1160,8 @@ static void atkbd_set_keycode_table(struct atkbd *atkbd)
 	} else if (atkbd->translated) {
 		for (i = 0; i < 128; i++) {
 			scancode = atkbd_unxlate_table[i];
-			atkbd->keycode[i] = atkbd_set2_keycode[scancode];
-			atkbd->keycode[i | 0x80] = atkbd_set2_keycode[scancode | 0x80];
+			atkbd->keycode[i] = shift_right_if_alpha_key(atkbd_set2_keycode[scancode]);
+			atkbd->keycode[i | 0x80] = shift_right_if_alpha_key(atkbd_set2_keycode[scancode | 0x80]);
 			if (atkbd->scroll)
 				for (j = 0; j < ARRAY_SIZE(atkbd_scroll_keys); j++)
 					if ((scancode | 0x80) == atkbd_scroll_keys[j].set2)
