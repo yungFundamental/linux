@@ -280,12 +280,10 @@ void drm_sched_entity_kill(struct drm_sched_entity *entity)
 	struct drm_sched_job *job;
 	struct dma_fence *prev;
 
-	if (!entity->rq)
-		return;
-
 	spin_lock(&entity->lock);
 	entity->stopped = true;
-	drm_sched_rq_remove_entity(entity->rq, entity);
+	if (entity->rq)
+		drm_sched_rq_remove_entity(entity->rq, entity);
 	spin_unlock(&entity->lock);
 
 	/* Make sure this entity is not used by the scheduler at the moment */
@@ -333,10 +331,13 @@ long drm_sched_entity_flush(struct drm_sched_entity *entity, long timeout)
 	struct task_struct *last_user;
 	long ret = timeout;
 
-	if (!entity->rq)
+	spin_lock(&entity->lock);
+	if (!entity->rq) {
+		spin_unlock(&entity->lock);
 		return 0;
-
+	}
 	sched = container_of(entity->rq, typeof(*sched), rq);
+	spin_unlock(&entity->lock);
 	/*
 	 * The client will not queue more jobs during this fini - consume
 	 * existing queued ones, or discard them on SIGKILL.
@@ -417,11 +418,22 @@ static void drm_sched_entity_wakeup(struct dma_fence *f,
 {
 	struct drm_sched_entity *entity =
 		container_of(cb, struct drm_sched_entity, cb);
-	struct drm_gpu_scheduler *sched =
-		container_of(entity->rq, typeof(*sched), rq);
+	/*
+	 * Fence callbacks run in atomic context (including hard IRQ), so we
+	 * cannot take entity->lock here. READ_ONCE pairs with the WRITE_ONCE
+	 * implicit in the locked writes to ->rq and prevents the compiler
+	 * from re-reading the pointer after the NULL check.
+	 */
+	struct drm_sched_rq *rq = READ_ONCE(entity->rq);
+	struct drm_gpu_scheduler *sched;
 
 	entity->dependency = NULL;
 	dma_fence_put(f);
+
+	if (!rq)
+		return;
+
+	sched = container_of(rq, typeof(*sched), rq);
 	drm_sched_wakeup(sched);
 }
 
@@ -449,10 +461,13 @@ EXPORT_SYMBOL(drm_sched_entity_set_priority);
 static bool drm_sched_entity_add_dependency_cb(struct drm_sched_entity *entity,
 					       struct drm_sched_job *sched_job)
 {
-	struct drm_gpu_scheduler *sched =
-		container_of(entity->rq, typeof(*sched), rq);
-	struct dma_fence *fence = entity->dependency;
+	struct drm_gpu_scheduler *sched;
 	struct drm_sched_fence *s_fence;
+	struct dma_fence *fence = entity->dependency;
+
+	spin_lock(&entity->lock);
+	sched = container_of(entity->rq, typeof(*sched), rq);
+	spin_unlock(&entity->lock);
 
 	if (fence->context == entity->fence_context ||
 	    fence->context == entity->fence_context + 1) {

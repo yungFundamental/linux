@@ -588,7 +588,7 @@ int drm_sched_job_init(struct drm_sched_job *job,
 		       u32 credits, void *owner,
 		       uint64_t drm_client_id)
 {
-	if (!entity->rq) {
+	if (!READ_ONCE(entity->rq)) {
 		/* This will most likely be followed by missing frames
 		 * or worse--a blank screen--leave a trail in the
 		 * logs, so this can be debugged easier.
@@ -648,7 +648,7 @@ void drm_sched_job_arm(struct drm_sched_job *job)
 
 	BUG_ON(!entity);
 	drm_sched_entity_select_rq(entity);
-	sched = container_of(entity->rq, typeof(*sched), rq);
+	sched = container_of(READ_ONCE(entity->rq), typeof(*sched), rq);
 
 	job->sched = sched;
 	job->s_priority = entity->priority;

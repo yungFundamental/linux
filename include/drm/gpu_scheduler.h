@@ -109,9 +109,10 @@ struct drm_sched_entity {
 	 *
 	 * Runqueue on which this entity is currently scheduled.
 	 *
-	 * FIXME: Locking is very unclear for this. Writers are protected by
-	 * @lock, but readers are generally lockless and seem to just race with
-	 * not even a READ_ONCE.
+	 * Writers hold @lock. Readers in process context take @lock; readers
+	 * in atomic context (fence callbacks) use READ_ONCE() because
+	 * entity->lock is a plain spinlock and cannot be acquired from hard
+	 * IRQ without converting every site to spin_lock_irqsave().
 	 */
 	struct drm_sched_rq		*rq;
 
