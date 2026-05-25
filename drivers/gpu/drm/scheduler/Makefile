@@ -25,3 +25,11 @@ gpu-sched-y := sched_main.o sched_fence.o sched_entity.o sched_rq.o
 obj-$(CONFIG_DRM_SCHED) += gpu-sched.o
 
 obj-$(CONFIG_DRM_SCHED_KUNIT_TEST) += tests/
+
+# Explicitly opt these files into KCSAN instrumentation so that data races
+# (e.g. lockless reads of drm_sched_entity::rq) are caught even if the
+# surrounding directory or a future addition disables KCSAN_SANITIZE.
+KCSAN_SANITIZE_sched_entity.o := y
+KCSAN_SANITIZE_sched_main.o   := y
+KCSAN_SANITIZE_sched_rq.o     := y
+KCSAN_SANITIZE_sched_fence.o  := y
