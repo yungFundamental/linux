@@ -54,6 +54,13 @@ struct ssd130x_deviceinfo {
 	bool need_pwm;
 	bool need_chargepump;
 	bool page_mode_only;
+	/*
+	 * Per-variant output format selector for the SSD133X data path. The
+	 * hardware can drive the panel in RGB332 (1 byte/pixel) or RGB565
+	 * (2 bytes/pixel); this is a policy choice per variant, not a
+	 * capability probe. When set, the variant is driven at RGB565.
+	 */
+	bool format_rgb565;
 
 	enum ssd130x_family_ids family_id;
 };

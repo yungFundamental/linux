@@ -140,6 +140,12 @@
 #define SSD133X_SET_PRECHARGE_VOLTAGE		0xbb
 #define SSD133X_SET_VCOMH_VOLTAGE		0xbe
 
+/* ssd133x remap byte (data of SSD13XX_SET_SEG_REMAP) */
+#define SSD133X_SET_REMAP_COM_SPLIT		BIT(5)
+#define SSD133X_SET_REMAP_COLOR_DEPTH_MASK	GENMASK(7, 6)
+#define SSD133X_COLOR_DEPTH_256			0x0
+#define SSD133X_COLOR_DEPTH_65K			0x1
+
 #define MAX_CONTRAST 255
 
 const struct ssd130x_deviceinfo ssd130x_variants[] = {
@@ -206,6 +212,7 @@ const struct ssd130x_deviceinfo ssd130x_variants[] = {
 	[SSD1331_ID] = {
 		.default_width = 96,
 		.default_height = 64,
+		.format_rgb565 = 1,
 		.family_id = SSD133X_FAMILY,
 	}
 };
@@ -584,6 +591,10 @@ static int ssd132x_init(struct ssd130x_device *ssd130x)
 
 static int ssd133x_init(struct ssd130x_device *ssd130x)
 {
+	u8 remap = SSD133X_SET_REMAP_COM_SPLIT |
+		   FIELD_PREP(SSD133X_SET_REMAP_COLOR_DEPTH_MASK,
+			      ssd130x->device_info->format_rgb565 ?
+			      SSD133X_COLOR_DEPTH_65K : SSD133X_COLOR_DEPTH_256);
 	const u8 cmds[] = {
 		2, SSD133X_CONTRAST_A, 0x91,
 		2, SSD133X_CONTRAST_B, 0x50,
@@ -595,9 +606,9 @@ static int ssd133x_init(struct ssd130x_device *ssd130x)
 		 * Horizontal Address Increment
 		 * Normal order SA,SB,SC (e.g. RGB)
 		 * COM Split Odd Even
-		 * 256 color format
+		 * 256 or 65k color format, depending on the variant
 		 */
-		2, SSD13XX_SET_SEG_REMAP, 0x20,
+		2, SSD13XX_SET_SEG_REMAP, remap,
 		2, SSD133X_SET_DISPLAY_START, 0x00,
 		2, SSD133X_SET_DISPLAY_OFFSET, 0x00,
 		1, SSD133X_SET_DISPLAY_NORMAL,
@@ -794,14 +805,20 @@ static int ssd133x_update_rect(struct ssd130x_device *ssd130x,
 	 * COM0 to COM[N - 1] are the rows and SEG0 to SEG[M - 1] are
 	 * the columns.
 	 *
-	 * Each Segment has a 8-bit pixel and each Common output has a
-	 * row of pixels. When using the (default) horizontal address
-	 * increment mode, each byte of data sent to the controller has
-	 * a Segment (e.g: SEG0).
+	 * Each Segment holds one pixel and each Common output has a row
+	 * of pixels. A pixel is 8 bits (one byte) in the 256 color
+	 * (RGB332) format or 16 bits (two bytes) in the 65k color
+	 * (RGB565) format. When using the (default) horizontal address
+	 * increment mode, the pixel data is sent Segment by Segment
+	 * (e.g: SEG0 first).
 	 *
 	 * When using the 256 color depth format, each pixel contains 3
 	 * sub-pixels for color A, B and C. These have 3 bit, 3 bit and
 	 * 2 bits respectively.
+	 *
+	 * When using the 65k color depth format, each pixel contains 3
+	 * sub-pixels for color A, B and C. These have 5 bit, 6 bit and
+	 * 5 bits respectively.
 	 */
 
 	/* Set column start and end */
@@ -872,9 +889,24 @@ static void ssd132x_clear_screen(struct ssd130x_device *ssd130x, u8 *data_array)
 	ssd130x_write_data(ssd130x, data_array, columns * height);
 }
 
+/*
+ * The SSD133X family can drive the panel in either RGB332 (1 byte per pixel)
+ * or RGB565 (2 bytes per pixel). The format is a per-variant policy choice
+ * selected through ssd130x_deviceinfo::format_rgb565, not a capability probe.
+ * Centralize the choice here so that the buffer sizing (allocation, clear and
+ * blit pitch) can never disagree.
+ */
+static const struct drm_format_info *ssd133x_format_info(struct ssd130x_device *ssd130x)
+{
+	if (ssd130x->device_info->format_rgb565)
+		return drm_format_info(DRM_FORMAT_RGB565);
+
+	return drm_format_info(DRM_FORMAT_RGB332);
+}
+
 static void ssd133x_clear_screen(struct ssd130x_device *ssd130x, u8 *data_array)
 {
-	const struct drm_format_info *fi = drm_format_info(DRM_FORMAT_RGB332);
+	const struct drm_format_info *fi = ssd133x_format_info(ssd130x);
 	unsigned int pitch;
 
 	if (!fi)
@@ -945,7 +977,7 @@ static int ssd133x_fb_blit_rect(struct drm_framebuffer *fb,
 				struct drm_format_conv_state *fmtcnv_state)
 {
 	struct ssd130x_device *ssd130x = drm_to_ssd130x(fb->dev);
-	const struct drm_format_info *fi = drm_format_info(DRM_FORMAT_RGB332);
+	const struct drm_format_info *fi = ssd133x_format_info(ssd130x);
 	unsigned int dst_pitch;
 	struct iosys_map dst;
 	int ret = 0;
@@ -956,7 +988,10 @@ static int ssd133x_fb_blit_rect(struct drm_framebuffer *fb,
 	dst_pitch = drm_format_info_min_pitch(fi, 0, drm_rect_width(rect));
 
 	iosys_map_set_vaddr(&dst, data_array);
-	drm_fb_xrgb8888_to_rgb332(&dst, &dst_pitch, vmap, fb, rect, fmtcnv_state);
+	if (ssd130x->device_info->format_rgb565)
+		drm_fb_xrgb8888_to_rgb565be(&dst, &dst_pitch, vmap, fb, rect, fmtcnv_state);
+	else
+		drm_fb_xrgb8888_to_rgb332(&dst, &dst_pitch, vmap, fb, rect, fmtcnv_state);
 
 	ssd133x_update_rect(ssd130x, rect, data_array, dst_pitch);
 
@@ -1414,7 +1449,7 @@ static int ssd133x_crtc_atomic_check(struct drm_crtc *crtc,
 	struct ssd130x_device *ssd130x = drm_to_ssd130x(drm);
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	struct ssd130x_crtc_state *ssd130x_state = to_ssd130x_crtc_state(crtc_state);
-	const struct drm_format_info *fi = drm_format_info(DRM_FORMAT_RGB332);
+	const struct drm_format_info *fi = ssd133x_format_info(ssd130x);
 	unsigned int pitch;
 	int ret;
 
