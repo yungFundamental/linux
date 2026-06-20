@@ -896,6 +896,10 @@ static int ssd133x_update_rect(struct ssd130x_device *ssd130x,
 	unsigned int rows = drm_rect_height(rect);
 	int ret;
 
+	/* TEMP debug: confirm whether non-origin (y>0) damage rects arrive */
+	drm_info(&ssd130x->drm, "update_rect x=%u y=%u w=%u h=%u pitch=%u\n",
+		 x, y, columns, rows, pitch);
+
 	/*
 	 * The screen is divided in Segment and Common outputs, where
 	 * COM0 to COM[N - 1] are the rows and SEG0 to SEG[M - 1] are
@@ -912,12 +916,12 @@ static int ssd133x_update_rect(struct ssd130x_device *ssd130x,
 	 */
 
 	/* Set column start and end */
-	ret = ssd130x_write_cmd(ssd130x, 3, SSD133X_SET_COL_RANGE, x, columns - 1);
+	ret = ssd130x_write_cmd(ssd130x, 3, SSD133X_SET_COL_RANGE, x, x + columns - 1);
 	if (ret < 0)
 		return ret;
 
 	/* Set row start and end */
-	ret = ssd130x_write_cmd(ssd130x, 3, SSD133X_SET_ROW_RANGE, y, rows - 1);
+	ret = ssd130x_write_cmd(ssd130x, 3, SSD133X_SET_ROW_RANGE, y, y + rows - 1);
 	if (ret < 0)
 		return ret;
 
