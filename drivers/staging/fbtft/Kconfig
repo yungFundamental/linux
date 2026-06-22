@@ -133,11 +133,6 @@ config FB_TFT_SSD1331
 	help
 	  Framebuffer support for SSD1331
 
-config FB_TFT_SSD1351
-	tristate "FB driver for the SSD1351 LCD Controller"
-	help
-	  Framebuffer support for SSD1351
-
 config FB_TFT_ST7735R
 	tristate "FB driver for the ST7735R LCD Controller"
 	help
