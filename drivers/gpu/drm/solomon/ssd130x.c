@@ -1830,8 +1830,50 @@ static int ssd130x_update_bl(struct backlight_device *bdev)
 	return 0;
 }
 
-static const struct backlight_ops ssd130xfb_bl_ops = {
-	.update_status	= ssd130x_update_bl,
+static int ssd133x_update_bl(struct backlight_device *bdev)
+{
+	struct ssd130x_device *ssd130x = bl_get_data(bdev);
+	int brightness = backlight_get_brightness(bdev);
+
+	ssd130x->contrast = brightness;
+
+	const u8 *cmds = (const u8[]){
+		2, SSD133X_CONTRAST_A, ssd130x->contrast,
+		2, SSD133X_CONTRAST_B, ssd130x->contrast,
+		2, SSD133X_CONTRAST_C, ssd130x->contrast,
+	};
+
+	return ssd130x_run_cmd_seq(ssd130x, cmds);
+}
+
+static int ssd135x_update_bl(struct backlight_device *bdev)
+{
+	struct ssd130x_device *ssd130x = bl_get_data(bdev);
+	int brightness = backlight_get_brightness(bdev);
+
+	ssd130x->contrast = brightness;
+
+	return ssd130x_write_cmd(ssd130x, 4,
+				SSD135X_SET_CONTRAST,
+				ssd130x->contrast,
+				ssd130x->contrast,
+				ssd130x->contrast);
+
+}
+
+static const struct backlight_ops ssd130xfb_bl_ops[] = {
+	[SSD130X_FAMILY] = {
+		.update_status	= ssd130x_update_bl,
+	},
+	[SSD132X_FAMILY] = {
+		.update_status	= ssd130x_update_bl,
+	},
+	[SSD133X_FAMILY] = {
+		.update_status	= ssd133x_update_bl,
+	},
+	[SSD135X_FAMILY] = {
+		.update_status	= ssd135x_update_bl,
+	},
 };
 
 static void ssd130x_parse_properties(struct ssd130x_device *ssd130x)
@@ -2037,25 +2079,16 @@ struct ssd130x_device *ssd130x_probe(struct device *dev, struct regmap *regmap)
 	if (ret)
 		return ERR_PTR(ret);
 
-	/*
-	 * The backlight update path drives contrast through the
-	 * SSD13XX_CONTRAST command (0x81), which the SSD135X family does not
-	 * implement; the brightness byte would be interpreted as a command
-	 * opcode instead. Do not register a backlight device for this family
-	 * until the backlight path is family-aware.
-	 */
-	if (ssd130x->device_info->family_id != SSD135X_FAMILY) {
-		bl = devm_backlight_device_register(dev, dev_name(dev), dev,
-						    ssd130x, &ssd130xfb_bl_ops,
-						    NULL);
-		if (IS_ERR(bl))
-			return ERR_PTR(dev_err_probe(dev, PTR_ERR(bl),
-						     "Unable to register backlight device\n"));
+	bl = devm_backlight_device_register(dev, dev_name(dev), dev,
+						ssd130x, &ssd130xfb_bl_ops[ssd130x->device_info->family_id],
+						NULL);
+	if (IS_ERR(bl))
+		return ERR_PTR(dev_err_probe(dev, PTR_ERR(bl),
+						"Unable to register backlight device\n"));
 
-		bl->props.brightness = ssd130x->contrast;
-		bl->props.max_brightness = MAX_CONTRAST;
-		ssd130x->bl_dev = bl;
-	}
+	bl->props.brightness = ssd130x->contrast;
+	bl->props.max_brightness = MAX_CONTRAST;
+	ssd130x->bl_dev = bl;
 
 	ret = ssd130x_init_modeset(ssd130x);
 	if (ret)
