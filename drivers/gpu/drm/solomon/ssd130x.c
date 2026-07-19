@@ -14,6 +14,7 @@
 #include <linux/bits.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/math.h>
 #include <linux/property.h>
 #include <linux/pwm.h>
 #include <linux/regulator/consumer.h>
@@ -140,6 +141,11 @@
 #define SSD133X_SET_PRECHARGE_VOLTAGE		0xbb
 #define SSD133X_SET_VCOMH_VOLTAGE		0xbe
 
+/* ssd133x A/B/C channel contrast at full brightness (white balance) */
+#define SSD133X_DEFAULT_CONTRAST_A		0x91
+#define SSD133X_DEFAULT_CONTRAST_B		0x50
+#define SSD133X_DEFAULT_CONTRAST_C		0x7d
+
 /* ssd133x remap byte (data of SSD13XX_SET_SEG_REMAP) */
 #define SSD133X_SET_REMAP_COM_SPLIT		BIT(5)
 #define SSD133X_SET_REMAP_COLOR_DEPTH_MASK	GENMASK(7, 6)
@@ -164,6 +170,11 @@
 #define SSD135X_SET_CONTRAST_MASTER		0xc7
 #define SSD135X_SET_MUX_RATIO			0xca
 #define SSD135X_SET_COMMAND_LOCK		0xfd
+
+/* ssd135x A/B/C channel contrast at full brightness (white balance) */
+#define SSD135X_DEFAULT_CONTRAST_A		0xc8
+#define SSD135X_DEFAULT_CONTRAST_B		0x80
+#define SSD135X_DEFAULT_CONTRAST_C		0xc8
 
 /* ssd135x remap byte (data of SSD13XX_SET_SEG_REMAP) */
 #define SSD135X_SET_REMAP_COLUMN		BIT(1)
@@ -363,6 +374,7 @@ static int ssd130x_run_cmd_seq(struct ssd130x_device *ssd130x, const u8 *seq)
 
 	return 0;
 }
+
 /* Set address range for horizontal/vertical addressing modes */
 static int ssd130x_set_col_range(struct ssd130x_device *ssd130x,
 				 u8 col_start, u8 cols)
@@ -632,6 +644,42 @@ static int ssd132x_init(struct ssd130x_device *ssd130x)
 	return ssd130x_run_cmd_seq(ssd130x, cmds);
 }
 
+/* Scale a channel's white-balance calibration contrast by the requested brightness */
+static u8 ssd130x_scale_contrast(u8 calibration, u32 brightness)
+{
+	return DIV_ROUND_CLOSEST(calibration * brightness, MAX_CONTRAST);
+}
+
+/*
+ * The A/B/C contrast channels drive sub-pixels whose OLED materials differ
+ * in luminous efficiency, so the per-channel values are a white-balance
+ * calibration.  Scale them by the requested brightness instead of
+ * overwriting them, to keep the white point while dimming.
+ */
+static int ssd133x_set_contrast(struct ssd130x_device *ssd130x, u32 brightness)
+{
+	const u8 cmds[] = {
+		2, SSD133X_CONTRAST_A,
+		ssd130x_scale_contrast(SSD133X_DEFAULT_CONTRAST_A, brightness),
+		2, SSD133X_CONTRAST_B,
+		ssd130x_scale_contrast(SSD133X_DEFAULT_CONTRAST_B, brightness),
+		2, SSD133X_CONTRAST_C,
+		ssd130x_scale_contrast(SSD133X_DEFAULT_CONTRAST_C, brightness),
+		0,
+	};
+
+	return ssd130x_run_cmd_seq(ssd130x, cmds);
+}
+
+static int ssd135x_set_contrast(struct ssd130x_device *ssd130x, u32 brightness)
+{
+	u8 a = ssd130x_scale_contrast(SSD135X_DEFAULT_CONTRAST_A, brightness);
+	u8 b = ssd130x_scale_contrast(SSD135X_DEFAULT_CONTRAST_B, brightness);
+	u8 c = ssd130x_scale_contrast(SSD135X_DEFAULT_CONTRAST_C, brightness);
+
+	return ssd130x_write_cmd(ssd130x, 4, SSD135X_SET_CONTRAST, a, b, c);
+}
+
 static int ssd133x_init(struct ssd130x_device *ssd130x)
 {
 	/*
@@ -640,10 +688,8 @@ static int ssd133x_init(struct ssd130x_device *ssd130x)
 	 */
 	u8 remap = SSD133X_SET_REMAP_COM_SPLIT |
 		   FIELD_PREP(SSD133X_SET_REMAP_COLOR_DEPTH_MASK, SSD133X_COLOR_DEPTH_65K);
+	int ret;
 	const u8 cmds[] = {
-		2, SSD133X_CONTRAST_A, 0x91,
-		2, SSD133X_CONTRAST_B, 0x50,
-		2, SSD133X_CONTRAST_C, 0x7d,
 		2, SSD133X_SET_MASTER_CURRENT, 0x06,
 		3, SSD133X_SET_COL_RANGE, 0x00, ssd130x->width - 1,
 		3, SSD133X_SET_ROW_RANGE, 0x00, ssd130x->height - 1,
@@ -663,6 +709,10 @@ static int ssd133x_init(struct ssd130x_device *ssd130x)
 		2, SSD133X_SET_VCOMH_VOLTAGE, 0x3e,
 		0,
 	};
+
+	ret = ssd133x_set_contrast(ssd130x, ssd130x->contrast);
+	if (ret < 0)
+		return ret;
 
 	return ssd130x_run_cmd_seq(ssd130x, cmds);
 }
@@ -692,15 +742,19 @@ static int ssd135x_init(struct ssd130x_device *ssd130x)
 		4, SSD135X_SET_VSL, 0xa0, 0xb5, 0x55,
 		2, SSD135X_SET_PRECHARGE, 0x17,
 		2, SSD135X_SET_VCOMH_VOLTAGE, 0x05,
-		4, SSD135X_SET_CONTRAST, 0xc8, 0x80, 0xc8,
 		2, SSD135X_SET_CONTRAST_MASTER, 0x0f,
 		2, SSD135X_SET_PRECHARGE2, 0x01,
 		1, SSD135X_SET_DISPLAY_NORMAL,
 		2, SSD13XX_SET_SEG_REMAP, remap,
 		0
 	};
+	int ret;
 
-	return ssd130x_run_cmd_seq(ssd130x, cmds);
+	ret = ssd130x_run_cmd_seq(ssd130x, cmds);
+	if (ret < 0)
+		return ret;
+
+	return ssd135x_set_contrast(ssd130x, ssd130x->contrast);
 }
 
 static int ssd130x_update_rect(struct ssd130x_device *ssd130x,
@@ -1833,32 +1887,19 @@ static int ssd130x_update_bl(struct backlight_device *bdev)
 static int ssd133x_update_bl(struct backlight_device *bdev)
 {
 	struct ssd130x_device *ssd130x = bl_get_data(bdev);
-	int brightness = backlight_get_brightness(bdev);
 
-	ssd130x->contrast = brightness;
+	ssd130x->contrast = backlight_get_brightness(bdev);
 
-	const u8 *cmds = (const u8[]){
-		2, SSD133X_CONTRAST_A, ssd130x->contrast,
-		2, SSD133X_CONTRAST_B, ssd130x->contrast,
-		2, SSD133X_CONTRAST_C, ssd130x->contrast,
-	};
-
-	return ssd130x_run_cmd_seq(ssd130x, cmds);
+	return ssd133x_set_contrast(ssd130x, ssd130x->contrast);
 }
 
 static int ssd135x_update_bl(struct backlight_device *bdev)
 {
 	struct ssd130x_device *ssd130x = bl_get_data(bdev);
-	int brightness = backlight_get_brightness(bdev);
 
-	ssd130x->contrast = brightness;
+	ssd130x->contrast = backlight_get_brightness(bdev);
 
-	return ssd130x_write_cmd(ssd130x, 4,
-				SSD135X_SET_CONTRAST,
-				ssd130x->contrast,
-				ssd130x->contrast,
-				ssd130x->contrast);
-
+	return ssd135x_set_contrast(ssd130x, ssd130x->contrast);
 }
 
 static const struct backlight_ops ssd130xfb_bl_ops[] = {
