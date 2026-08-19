@@ -725,7 +725,7 @@ static int ssd135x_init(struct ssd130x_device *ssd130x)
 	 * BGR sub-pixel order and 65k (RGB565) color depth. Rotation is not
 	 * supported, so the remap byte is fixed.
 	 */
-	u8 remap = SSD135X_SET_REMAP_65K | SSD135X_SET_REMAP_COM_SPLIT |
+	const u8 remap = SSD135X_SET_REMAP_65K | SSD135X_SET_REMAP_COM_SPLIT |
 		   SSD135X_SET_REMAP_COLOR_BGR | SSD135X_SET_REMAP_COM_SCAN;
 	int ret;
 	const u8 cmds[] = {
