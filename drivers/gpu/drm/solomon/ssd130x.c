@@ -688,7 +688,7 @@ static int ssd133x_init(struct ssd130x_device *ssd130x)
 	 * Horizontal address increment, normal SA,SB,SC (e.g. RGB) sub-pixel
 	 * order, COM split odd even and 65k (RGB565) color depth.
 	 */
-	u8 remap = SSD133X_SET_REMAP_COM_SPLIT |
+	const u8 remap = SSD133X_SET_REMAP_COM_SPLIT |
 		   FIELD_PREP(SSD133X_SET_REMAP_COLOR_DEPTH_MASK, SSD133X_COLOR_DEPTH_65K);
 	const u8 cmds[] = {
 		2, SSD133X_SET_MASTER_CURRENT, 0x06,
