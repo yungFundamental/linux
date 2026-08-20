@@ -1545,11 +1545,12 @@ static void ssd135x_primary_plane_atomic_disable(struct drm_plane *plane,
 {
 	struct drm_device *drm = plane->dev;
 	struct ssd130x_device *ssd130x = drm_to_ssd130x(drm);
-	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_plane_state *plane_state;
 	struct drm_crtc_state *crtc_state;
 	struct ssd130x_crtc_state *ssd130x_crtc_state;
 	int idx;
 
+	plane_state = drm_atomic_get_new_plane_state(state, plane);
 	if (!plane_state->crtc)
 		return;
 
