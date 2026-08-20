@@ -726,8 +726,7 @@ static int ssd135x_init(struct ssd130x_device *ssd130x)
 	 * supported, so the remap byte is fixed.
 	 */
 	const u8 remap = SSD135X_SET_REMAP_65K | SSD135X_SET_REMAP_COM_SPLIT |
-		   SSD135X_SET_REMAP_COLOR_BGR | SSD135X_SET_REMAP_COM_SCAN;
-	int ret;
+			 SSD135X_SET_REMAP_COLOR_BGR | SSD135X_SET_REMAP_COM_SCAN;
 	const u8 cmds[] = {
 		/* Unlock the controller, then the extended command set */
 		2, SSD135X_SET_COMMAND_LOCK, 0x12,
@@ -751,6 +750,7 @@ static int ssd135x_init(struct ssd130x_device *ssd130x)
 		2, SSD13XX_SET_SEG_REMAP, remap,
 		0,
 	};
+	int ret;
 
 	ret = ssd130x_run_cmd_seq(ssd130x, cmds);
 	if (ret < 0)
