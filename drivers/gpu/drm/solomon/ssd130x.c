@@ -1079,7 +1079,7 @@ static void ssd135x_clear_screen(struct ssd130x_device *ssd130x, u8 *data_array)
 	struct drm_rect screen = DRM_RECT_INIT(0, 0, ssd130x->width, ssd130x->height);
 	const struct drm_format_info *fi;
 	unsigned int pitch;
-	
+
 	fi = drm_format_info(DRM_FORMAT_RGB565);
 	if (!fi)
 		return;
@@ -1172,7 +1172,7 @@ static int ssd135x_fb_blit_rect(struct drm_framebuffer *fb,
 	const struct drm_format_info *fi;
 	unsigned int dst_pitch;
 	struct iosys_map dst;
-	
+
 	fi = drm_format_info(DRM_FORMAT_RGB565);
 	if (!fi)
 		return -EINVAL;
