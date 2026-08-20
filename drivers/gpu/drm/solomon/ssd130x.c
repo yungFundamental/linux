@@ -345,7 +345,7 @@ static int ssd130x_write_cmd(struct ssd130x_device *ssd130x, int count,
 	u8 buf[8];
 	va_list ap;
 
-	if (drm_WARN_ON(&ssd130x->drm, count > ARRAY_SIZE(buf)))
+	if (drm_WARN_ON(&ssd130x->drm, count > sizeof(buf)))
 		return -EINVAL;
 
 	va_start(ap, count);
